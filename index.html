@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>Tuner</title>
+  <meta name="theme-color" content="#0e0f12">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Tuner">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="app" data-state="idle">
+    <header class="top">
+      <span class="brand">Tuner</span>
+      <button class="ref" id="refBtn" aria-label="Częstotliwość A4">A4 = <span id="refVal">440</span> Hz</button>
+    </header>
+
+    <section class="readout">
+      <div class="note"><span id="note">–</span><sub id="octave"></sub></div>
+      <div class="freq"><span id="freq">0.0</span> Hz</div>
+    </section>
+
+    <section class="gauge" aria-hidden="true">
+      <svg viewBox="0 0 300 170">
+        <g class="ticks" id="ticks"></g>
+        <path class="arc" d="M 30 150 A 120 120 0 0 1 270 150" />
+        <path class="zone" d="M 135.4 30.9 A 120 120 0 0 1 164.6 30.9" />
+        <g id="needle" class="needle">
+          <line x1="150" y1="150" x2="150" y2="42" />
+          <circle cx="150" cy="150" r="7" />
+        </g>
+      </svg>
+      <div class="cents"><span id="cents">0</span> ct</div>
+      <div class="hint" id="hint">Dotknij, aby zacząć</div>
+    </section>
+
+    <section class="board">
+      <div class="board-head">
+        <label class="tuning">
+          <select id="tuning" aria-label="Strojenie"></select>
+        </label>
+        <button class="auto active" id="autoBtn">Auto</button>
+      </div>
+      <div class="strings" id="strings" aria-label="Struny"></div>
+      <div class="board-foot">Góra = najgrubsza struna (6), tak jak patrzysz na gitarę z góry</div>
+    </section>
+
+    <button class="start" id="startBtn">Start</button>
+  </main>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>
