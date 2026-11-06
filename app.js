@@ -3,30 +3,32 @@ import { detectPitch } from './pitch.js';
 const NOTES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
 // MIDI numbers, string 6 (thickest) to string 1
 const TUNINGS = [
-  { id: 'standard', name: 'Standard (E A D G B E)', midi: [40, 45, 50, 55, 59, 64] },
-  { id: 'dropd', name: 'Drop D (D A D G B E)', midi: [38, 45, 50, 55, 59, 64] },
-  { id: 'halfdown', name: 'Pół tonu niżej (E♭)', midi: [39, 44, 49, 54, 58, 63] },
-  { id: 'dstd', name: 'Cały ton niżej (D)', midi: [38, 43, 48, 53, 57, 62] },
-  { id: 'dropc', name: 'Drop C (C G C F A D)', midi: [36, 43, 48, 53, 57, 62] },
+  { id: 'standard', name: 'Standard', midi: [40, 45, 50, 55, 59, 64] },
+  { id: 'dropd', name: 'Drop D', midi: [38, 45, 50, 55, 59, 64] },
+  { id: 'halfdown', name: 'Pół tonu niżej', midi: [39, 44, 49, 54, 58, 63] },
+  { id: 'dstd', name: 'Cały ton niżej', midi: [38, 43, 48, 53, 57, 62] },
+  { id: 'dropc', name: 'Drop C', midi: [36, 43, 48, 53, 57, 62] },
   { id: 'dadgad', name: 'DADGAD', midi: [38, 45, 50, 55, 57, 62] },
-  { id: 'openg', name: 'Open G (D G D G B D)', midi: [38, 43, 50, 55, 59, 62] },
-  { id: 'opend', name: 'Open D (D A D F♯ A D)', midi: [38, 45, 50, 54, 57, 62] },
-  { id: 'opene', name: 'Open E (E B E G♯ B E)', midi: [40, 47, 52, 56, 59, 64] },
+  { id: 'openg', name: 'Open G', midi: [38, 43, 50, 55, 59, 62] },
+  { id: 'opend', name: 'Open D', midi: [38, 45, 50, 54, 57, 62] },
+  { id: 'opene', name: 'Open E', midi: [40, 47, 52, 56, 59, 64] },
 ];
-let STRINGS = [];
-const IN_TUNE_CENTS = 5;
+const IN_TUNE_CENTS = 4;
 const MAX_CENTS = 50;
+const SWEEP = 78; // degrees each side of the gauge
+const CX = 170, CY = 178;
 
 const $ = (id) => document.getElementById(id);
 const app = document.querySelector('.app');
 const el = {
-  note: $('note'), octave: $('octave'), freq: $('freq'), cents: $('cents'),
-  needle: $('needle'), hint: $('hint'), start: $('startBtn'),
-  strings: $('strings'), ref: $('refBtn'), refVal: $('refVal'), ticks: $('ticks'),
-  tuning: $('tuning'), auto: $('autoBtn'),
+  note: $('note'), octave: $('octave'), freq: $('freq'), cents: $('cents'), badge: $('badge'),
+  needle: $('needle'), hint: $('hint'), start: $('startBtn'), ticks: $('ticks'),
+  ref: $('refBtn'), refVal: $('refVal'), tuning: $('tuning'),
+  preview: $('preview'), picker: $('picker'),
 };
 
-let a4 = Number(localStorageGet('a4')) || 440;
+let STRINGS = [];
+let a4 = Number(storeGet('a4')) || 440;
 let target = null; // null = auto, otherwise MIDI number
 let ctx, analyser, stream, buf, raf;
 let smoothFreq = 0;
@@ -34,74 +36,128 @@ let lastHeard = 0;
 let wasInTune = false;
 let wakeLock = null;
 
-// ---- UI setup ----
+// ---------- Setup ----------
 el.refVal.textContent = a4;
 drawTicks();
 TUNINGS.forEach((t) => el.tuning.add(new Option(t.name, t.id)));
-el.tuning.value = TUNINGS.some((t) => t.id === localStorageGet('tuning')) ? localStorageGet('tuning') : 'standard';
+el.tuning.value = TUNINGS.some((t) => t.id === storeGet('tuning')) ? storeGet('tuning') : 'standard';
 buildStrings();
 
 el.tuning.addEventListener('change', () => {
-  localStorageSet('tuning', el.tuning.value);
+  storeSet('tuning', el.tuning.value);
   buildStrings();
 });
 
-el.strings.addEventListener('click', (e) => {
-  const b = e.target.closest('.string');
-  if (!b) return;
-  setLock(b.classList.contains('locked') ? null : Number(b.dataset.midi));
-});
-el.auto.addEventListener('click', () => setLock(null));
-
-function setLock(midi) {
-  target = midi;
-  el.auto.classList.toggle('active', midi == null);
-  el.strings.querySelectorAll('.string').forEach((b) =>
-    b.classList.toggle('locked', Number(b.dataset.midi) === midi));
-  if (midi != null) markTarget(midi);
-}
-
-function buildStrings() {
-  const tuning = TUNINGS.find((t) => t.id === el.tuning.value);
-  STRINGS = tuning.midi.map((midi, i) => ({ num: 6 - i, midi }));
-  el.strings.innerHTML = '';
-  STRINGS.forEach((s, i) => {
-    const b = document.createElement('button');
-    b.className = 'string';
-    b.dataset.midi = s.midi;
-    b.style.setProperty('--thick', `${(5.5 - i * 0.8).toFixed(1)}px`);
-    b.setAttribute('aria-label', `Struna ${s.num}, ${noteName(s.midi)}`);
-    b.innerHTML = `<span class="num">${s.num}</span><span class="wire"></span>`
-      + `<span class="name">${NOTES[s.midi % 12]}<sub>${Math.floor(s.midi / 12) - 1}</sub></span>`;
-    el.strings.appendChild(b);
-  });
-  setLock(null);
-}
-
-function noteName(midi) { return NOTES[midi % 12] + (Math.floor(midi / 12) - 1); }
-
 el.ref.addEventListener('click', () => {
-  const v = prompt('Częstotliwość A4 (Hz)', a4);
-  const n = Number(v);
+  const n = Number(prompt('Częstotliwość A4 (Hz)', a4));
   if (n >= 400 && n <= 480) {
     a4 = n;
     el.refVal.textContent = a4;
-    localStorageSet('a4', a4);
+    storeSet('a4', a4);
   }
 });
 
-el.start.addEventListener('click', () => (ctx && ctx.state === 'running' ? stop() : start()));
+el.start.addEventListener('click', () => (ctx ? stop() : start()));
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && app.classList.contains('running')) requestWakeLock();
+  if (document.visibilityState === 'visible' && ctx) requestWakeLock();
 });
 
-// ---- Audio ----
+// ---------- Strings: preview + picker ----------
+function buildStrings() {
+  const tuning = TUNINGS.find((t) => t.id === el.tuning.value);
+  STRINGS = tuning.midi.map((midi, i) => ({ num: 6 - i, midi }));
+  const low = NOTES[STRINGS[0].midi % 12];
+  const label = (s) => {
+    const n = NOTES[s.midi % 12];
+    return s.num === 1 && n === low ? n.toLowerCase() : n;
+  };
+
+  // Passive preview, thickest string on top (as seen looking down at the guitar)
+  el.preview.innerHTML = STRINGS.map((s, i) =>
+    `<div class="wire-row" data-midi="${s.midi}" style="--thick:${(4.5 - i * 0.65).toFixed(2)}px">
+      <span class="num">${s.num}</span><span class="wire"></span>
+      <span class="name">${label(s)}<sub>${octave(s.midi)}</sub></span>
+    </div>`).join('');
+
+  // Swipeable picker, low to high
+  el.picker.innerHTML = `<button class="pick auto" data-midi="">Auto</button>`
+    + STRINGS.map((s) => `<button class="pick" data-midi="${s.midi}" aria-label="Struna ${s.num}">
+        ${label(s)}<small>${s.num}</small></button>`).join('');
+
+  requestAnimationFrame(() => {
+    el.picker.scrollLeft = 0;
+    stylePicker();
+    setLock(null);
+  });
+}
+
+let scrollTimer;
+el.picker.addEventListener('scroll', () => {
+  stylePicker();
+  clearTimeout(scrollTimer);
+  scrollTimer = setTimeout(commitPicker, 110);
+}, { passive: true });
+
+el.picker.addEventListener('click', (e) => {
+  const b = e.target.closest('.pick');
+  if (b) scrollToItem(b);
+});
+
+function pickerItems() { return [...el.picker.querySelectorAll('.pick')]; }
+
+function centeredItem() {
+  const mid = el.picker.scrollLeft + el.picker.clientWidth / 2;
+  return pickerItems().reduce((best, b) => {
+    const d = Math.abs(b.offsetLeft + b.offsetWidth / 2 - mid);
+    return d < best.d ? { b, d } : best;
+  }, { b: null, d: Infinity }).b;
+}
+
+function stylePicker() {
+  const mid = el.picker.scrollLeft + el.picker.clientWidth / 2;
+  const current = centeredItem();
+  pickerItems().forEach((b) => {
+    const d = Math.abs(b.offsetLeft + b.offsetWidth / 2 - mid) / b.offsetWidth;
+    b.style.opacity = Math.max(0.2, 1 - d * 0.28).toFixed(2);
+    b.style.filter = d > 1.4 ? `blur(${Math.min(4, (d - 1.4) * 2.5).toFixed(1)}px)` : 'none';
+    b.style.transform = `scale(${(1 - Math.min(d, 3) * 0.05).toFixed(3)})`;
+    b.classList.toggle('current', b === current);
+  });
+}
+
+function commitPicker() {
+  const b = centeredItem();
+  if (!b) return;
+  const midi = b.dataset.midi ? Number(b.dataset.midi) : null;
+  if (midi !== target) {
+    setLock(midi);
+    navigator.vibrate?.(8);
+  }
+}
+
+function scrollToItem(b) {
+  el.picker.scrollTo({ left: b.offsetLeft + b.offsetWidth / 2 - el.picker.clientWidth / 2, behavior: 'smooth' });
+}
+
+function setLock(midi) {
+  target = midi;
+  el.preview.querySelectorAll('.wire-row').forEach((r) =>
+    r.classList.toggle('selected', Number(r.dataset.midi) === midi));
+  markHit(midi);
+}
+
+function markHit(midi) {
+  el.preview.querySelectorAll('.wire-row').forEach((r) =>
+    r.classList.toggle('hit', midi != null && lastHeard !== 0 && Number(r.dataset.midi) === midi));
+}
+
+// ---------- Audio ----------
 async function start() {
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
     });
-  } catch (err) {
+  } catch {
     el.hint.textContent = 'Brak dostępu do mikrofonu';
     return;
   }
@@ -128,10 +184,22 @@ function stop() {
   wakeLock?.release().catch(() => {});
   wakeLock = null;
   app.classList.remove('running');
-  app.dataset.state = 'idle';
   el.start.textContent = 'Start';
-  el.hint.textContent = 'Dotknij, aby zacząć';
+  reset('Naciśnij Start');
+}
+
+function reset(hint) {
+  smoothFreq = 0;
+  lastHeard = 0;
+  wasInTune = false;
+  app.dataset.state = 'idle';
+  el.hint.textContent = hint;
+  el.note.textContent = '–';
+  el.octave.textContent = '';
+  el.freq.textContent = '0.0';
+  el.cents.textContent = '';
   setNeedle(0);
+  markHit(null);
 }
 
 function loop() {
@@ -146,18 +214,8 @@ function loop() {
     smoothFreq = jump ? freq : smoothFreq * 0.8 + freq * 0.2;
     lastHeard = now;
     render(smoothFreq);
-  } else if (now - lastHeard > 1200 && lastHeard !== 0) {
-    smoothFreq = 0;
-    lastHeard = 0;
-    app.dataset.state = 'idle';
-    el.hint.textContent = 'Zagraj strunę';
-    el.note.textContent = '–';
-    el.octave.textContent = '';
-    el.freq.textContent = '0.0';
-    el.cents.textContent = '0';
-    setNeedle(0);
-    markTarget(null);
-    wasInTune = false;
+  } else if (lastHeard !== 0 && now - lastHeard > 1200) {
+    reset('Zagraj strunę');
   }
 }
 
@@ -165,65 +223,63 @@ function render(freq) {
   const midiFloat = 69 + 12 * Math.log2(freq / a4);
   let midi = target;
   if (midi == null) {
-    // Auto: lock onto the nearest string of the tuning (within 3.5 semitones),
-    // so e.g. retuning E -> D in Drop D still guides you. Otherwise chromatic.
+    // Auto: snap to the nearest string of the tuning (within 3.5 semitones),
+    // so retuning E -> D in Drop D still guides you. Otherwise chromatic.
     const near = STRINGS.reduce((a, s) =>
       Math.abs(midiFloat - s.midi) < Math.abs(midiFloat - a.midi) ? s : a);
     midi = Math.abs(midiFloat - near.midi) < 3.5 ? near.midi : Math.round(midiFloat);
-    markTarget(midi === near.midi ? near.midi : null);
-  } else {
-    markTarget(target);
   }
-  const cents = Math.round((midiFloat - midi) * 100);
-  const clamped = Math.max(-MAX_CENTS, Math.min(MAX_CENTS, cents));
+  markHit(STRINGS.some((s) => s.midi === midi) ? midi : null);
 
+  const cents = Math.round((midiFloat - midi) * 100);
   el.note.textContent = NOTES[((midi % 12) + 12) % 12];
-  el.octave.textContent = Math.floor(midi / 12) - 1;
+  el.octave.textContent = octave(midi);
   el.freq.textContent = freq.toFixed(1);
-  el.cents.textContent = (cents > 0 ? '+' : '') + cents;
-  setNeedle(clamped);
+  el.cents.textContent = (cents > 0 ? '+' : '') + cents + ' ct';
+  setNeedle(Math.max(-MAX_CENTS, Math.min(MAX_CENTS, cents)));
 
   const inTune = Math.abs(cents) <= IN_TUNE_CENTS;
   app.dataset.state = inTune ? 'ok' : cents < 0 ? 'flat' : 'sharp';
-  el.hint.textContent = inTune ? 'Nastrojone' : Math.abs(cents) > MAX_CENTS
-    ? (cents < 0 ? 'Za nisko, podciągnij' : 'Za wysoko, poluzuj')
-    : cents < 0 ? 'Podciągnij' : 'Poluzuj';
+  el.hint.textContent = inTune ? 'Nastrojone'
+    : cents < 0 ? (cents < -MAX_CENTS ? 'Dużo za nisko, podciągnij' : 'Za nisko, podciągnij')
+    : (cents > MAX_CENTS ? 'Dużo za wysoko, poluzuj' : 'Za wysoko, poluzuj');
 
   if (inTune && !wasInTune) navigator.vibrate?.(40);
   wasInTune = inTune;
 }
 
+// ---------- Gauge ----------
 function setNeedle(cents) {
-  el.needle.style.transform = `rotate(${(cents / MAX_CENTS) * 70}deg)`;
-}
-
-function markTarget(midi) {
-  el.strings.querySelectorAll('.string').forEach((b) =>
-    b.classList.toggle('target', Number(b.dataset.midi) === midi));
+  el.needle.style.transform = `rotate(${(cents / MAX_CENTS) * SWEEP}deg)`;
 }
 
 function drawTicks() {
   const ns = 'http://www.w3.org/2000/svg';
-  for (let c = -50; c <= 50; c += 5) {
-    const a = ((c / MAX_CENTS) * 70 - 90) * (Math.PI / 180);
+  for (let c = -50; c <= 50; c += 2) {
+    const a = ((c / MAX_CENTS) * SWEEP - 90) * (Math.PI / 180);
     const major = c % 25 === 0;
-    const r1 = 120, r2 = major ? 104 : 112;
+    const zone = Math.abs(c) <= IN_TUNE_CENTS;
+    const r1 = 150, r2 = major ? (c === 0 ? 128 : 134) : zone ? 136 : 141;
     const l = document.createElementNS(ns, 'line');
-    l.setAttribute('x1', 150 + r1 * Math.cos(a));
-    l.setAttribute('y1', 150 + r1 * Math.sin(a));
-    l.setAttribute('x2', 150 + r2 * Math.cos(a));
-    l.setAttribute('y2', 150 + r2 * Math.sin(a));
+    l.setAttribute('x1', (CX + r1 * Math.cos(a)).toFixed(2));
+    l.setAttribute('y1', (CY + r1 * Math.sin(a)).toFixed(2));
+    l.setAttribute('x2', (CX + r2 * Math.cos(a)).toFixed(2));
+    l.setAttribute('y2', (CY + r2 * Math.sin(a)).toFixed(2));
     if (major) l.classList.add('major');
+    if (zone) l.classList.add('zone');
     el.ticks.appendChild(l);
   }
 }
+
+// ---------- Utils ----------
+function octave(midi) { return Math.floor(midi / 12) - 1; }
 
 async function requestWakeLock() {
   try { wakeLock = await navigator.wakeLock?.request('screen'); } catch {}
 }
 
-function localStorageGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
-function localStorageSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+function storeGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function storeSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
