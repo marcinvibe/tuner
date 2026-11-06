@@ -1,6 +1,6 @@
-const CACHE = 'tuner-v3';
+const CACHE = 'tuner-v4';
 const ASSETS = [
-  './', 'index.html', 'style.css', 'app.js', 'pitch.js', 'manifest.webmanifest',
+  './', 'index.html', 'style.css', 'app.js', 'tuner.js', 'audio.js', 'tunings.js', 'pitch.js', 'learn/learn.js', 'learn/song.js', 'learn/midi.js', 'learn/draw.js', 'learn/store.js', 'manifest.webmanifest',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
 
